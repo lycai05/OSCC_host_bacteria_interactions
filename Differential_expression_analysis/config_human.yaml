@@ -1,0 +1,5 @@
+samples: samples_human.tsv
+
+SCRIPT_DIR: "/home/liuyang/Projects/DO_DN/scripts/diff_expr"
+
+OUTPUT_DIR: "/home/liuyang/Projects/DO_DN/results/diff_expr"

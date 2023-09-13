@@ -1,0 +1,37 @@
+import pandas as pd
+import glob
+import re
+
+configfile: "config_human.yaml"
+
+PREFIX = pd.read_table(config["samples"])['Sample']
+SCRIPT_DIR = config["SCRIPT_DIR"]
+OUTPUT_DIR = config["OUTPUT_DIR"]
+
+
+rule all:
+    input:
+        expand(OUTPUT_DIR + "/featureCounts/{prefix}.RData", prefix = PREFIX)
+    
+
+rule edgeR:
+    input:
+         meta_file =  SCRIPT_DIR + '/edgeR_meta_file_template/{prefix}_meta.csv'
+    params:
+        scriptDir = SCRIPT_DIR,
+        wkDir = OUTPUT_DIR
+    output:
+        rda = OUTPUT_DIR + "/featureCounts/{prefix}.RData"
+    conda:
+        "envs/edgeR.yml"
+    shell:
+        "Rscript {params.scriptDir}/src/edgeR_human.R {input.meta_file} {params.wkDir} {wildcards.prefix}"
+
+
+
+
+ 
+
+
+
+

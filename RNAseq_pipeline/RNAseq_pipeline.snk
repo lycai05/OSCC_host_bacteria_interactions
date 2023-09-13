@@ -1,0 +1,179 @@
+import os
+
+
+# with open('/home/liuyang/Projects/DO_DN/data/rnaseq_batch20221217/sample_prefix.txt', 'r') as f:
+#     SAMPLES = f.read().splitlines()
+with open('SAMPLE_PREFIX.txt', 'r') as f:
+    SAMPLES = f.read().splitlines()
+
+# RAWDATA_DIR = '/home/liuyang/Projects/DO_DN/data/rnaseq_batch20221217'
+# OUTPUT_DIR = '/home/liuyang/Projects/DO_DN/results/rnaseq_batch20221217'
+RAWDATA_DIR='RAWDATA_DIR'
+OUTPUT_DIR='OUTPUT_DIR'
+gtf = "/home/liuyang/Annotation/hg38/Homo_sapiens.GRCh38.94.2.gtf"
+STAR_INDEX_PATH = "/home/liuyang/Annotation/hg38/STAR2.7.2b_index"
+gtf2 = "/home/liuyang/Annotation/hg38/Homo_sapiens.GRCh38.94.gtf"
+
+
+rule all:
+    input:
+        expand(RAWDATA_DIR + '/{sample}_1.clean.fq.gz', sample=SAMPLES),
+        expand(RAWDATA_DIR + '/{sample}_2.clean.fq.gz', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1.clean_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2.clean_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R1_paired_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R2_paired_fastqc.html', sample=SAMPLES),
+        #STAR_INDEX_PATH + "/Genome",
+        #STAR_INDEX_PATH + "/SA",
+        #STAR_INDEX_PATH + "/SAindex",
+        #expand(OUTPUT_DIR + "/mapped/{sample}_STARAligned.filtered.SortByCoord.bam", sample=SAMPLES),
+        #expand(OUTPUT_DIR + "/mapped/{sample}_STARAligned.filtered.SortByCoord.bam.bai", sample=SAMPLES),
+        #expand(OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.forward.RPKM.bw", sample=SAMPLES),
+        #expand(OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.reverse.RPKM.bw", sample=SAMPLES),
+       ## expand(OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.bw", sample = SAMPLES),
+        #expand(OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByRead.bam", sample=SAMPLES),
+        expand(OUTPUT_DIR + "/counts/{sample}_featurecounts.txt", sample=SAMPLES)
+
+
+# rule mv_fastq:
+#     output:
+#         R1 = RAWDATA_DIR + '/{sample}/{sample}_1.clean.fq.gz',
+#         R2 = RAWDATA_DIR + '/{sample}/{sample}_2.clean.fq.gz'
+#     params:
+#        input_dir = RAWDATA_DIR,
+#        sample_folder = "{sample}"
+#     shell:
+#         "mv {params.input_dir}/{params.sample_folder}/*_1.fq.gz {output.R1}; \
+#         mv {params.input_dir}/{params.sample_folder}/*_2.fq.gz {output.R2}"
+
+
+rule quality:
+    input:
+        R1 = RAWDATA_DIR + '/{sample}_1.clean.fq.gz',
+        R2 = RAWDATA_DIR + '/{sample}_2.clean.fq.gz'
+    params:
+        out_dir = OUTPUT_DIR + '/qc/pre_trim_fastqc'
+    output:
+        OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1.clean_fastqc.html',
+        OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2.clean_fastqc.html'
+    conda:
+        'envs/fastqc.yml'
+    shell:
+        "fastqc -o {params.out_dir} -f fastq {input.R1}; \
+        fastqc -o {params.out_dir} -f fastq {input.R2}"
+
+
+rule trim_reads_pe:
+    input:
+        R1 = RAWDATA_DIR + '/{sample}_1.clean.fq.gz',
+        R2 = RAWDATA_DIR + '/{sample}_2.clean.fq.gz',
+        R1_pre_trim_fastqc = OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1.clean_fastqc.html',
+        R2_pre_trim_fastqc = OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2.clean_fastqc.html'
+    output:
+       R1_p = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+       R2_p = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz",
+       R1_up = OUTPUT_DIR  + "/trimmed/{sample}_R1_unpaired.fq.gz",
+       R2_up = OUTPUT_DIR  + "/trimmed/{sample}_R2_unpaired.fq.gz"
+    conda:
+        "envs/trimmomatic.yml"
+    log:
+        OUTPUT_DIR + "/logs/trimmomatic/{sample}.log"
+    shell:
+        "trimmomatic PE -threads 4 -phred33 {input.R1} {input.R2} \
+        {output.R1_p} {output.R1_up}  {output.R2_p} {output.R2_up} \
+        LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:20"
+
+
+rule post_trim_fastqc:
+    input:
+        R1_p = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+        R2_p = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz"
+    output:
+         OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R1_paired_fastqc.html',
+         OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R2_paired_fastqc.html'
+    params:
+        OUTPUT_DIR = OUTPUT_DIR + '/qc/post_trim_fastqc'
+    conda:
+        'envs/fastqc.yml'
+    shell:
+        "fastqc -o {params.OUTPUT_DIR} -f fastq {input.R1_p}; \
+        fastqc -o {params.OUTPUT_DIR} -f fastq {input.R2_p}"
+
+
+# rule create_star_index:
+#     input:
+#         "/home/liuyang/Annotation/hg38/sequence/GRCh38.fa",
+#         "/home/liuyang/Annotation/hg38/Homo_sapiens.GRCh38.94.2.gtf"
+#     output:
+#         STAR_INDEX_PATH + "/Genome",
+#         STAR_INDEX_PATH + "/SA",
+#         STAR_INDEX_PATH + "/SAindex"
+#     conda:
+#         "envs/rnaseq2.yml"
+#     shell:
+#         "STAR --runThreadN 6 \
+#         --runMode genomeGenerate \
+#         --genomeDir /home/liuyang/Annotation/hg38/STAR2.7.2b_index \
+#         --genomeFastaFiles /home/liuyang/Annotation/hg38/sequence/GRCh38.fa \
+#         --sjdbGTFfile /home/liuyang/Annotation/hg38/Homo_sapiens.GRCh38.94.2.gtf \
+#         --sjdbOverhang 99"
+
+
+rule align:
+    input:
+        R1 = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+        R2 = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz",
+        INDEX_P1 = STAR_INDEX_PATH + "/Genome",
+        INDEX_P2 = STAR_INDEX_PATH + "/SA",
+        INDEX_P3 = STAR_INDEX_PATH + "/SAindex",
+        gtf = gtf
+    output:
+        bam = OUTPUT_DIR + "/mapped/{sample}_STARAligned.sortedByCoord.out.bam"
+    params:
+        PREFIX = OUTPUT_DIR + "/mapped/{sample}_STAR", 
+        STAR_INDEX_PATH = STAR_INDEX_PATH
+    conda:
+        "envs/star.yml"
+    shell:
+        "STAR \
+        --readFilesCommand zcat \
+        --runThreadN 4 \
+        --genomeDir  {params.STAR_INDEX_PATH} \
+        --sjdbGTFfile {input.gtf}  \
+        --readFilesIn {input.R1} {input.R2} \
+        --limitOutSJcollapsed 2000000 \
+        --twopassMode Basic \
+        --outSAMtype BAM SortedByCoordinate \
+        --outFileNamePrefix {params.PREFIX}"
+
+
+rule post_align_filter:
+    input:
+        bam = OUTPUT_DIR + "/mapped/{sample}_STARAligned.sortedByCoord.out.bam"
+    output:
+        filteredBam = OUTPUT_DIR + "/{sample}_STARAligned.filtered.bam"#,
+        #bw_forward = OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.forward.bw",
+        #bw_reverse = OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.reverse.bw"
+        #bw = OUTPUT_DIR + "/{sample}_STARAligned.filtered.SortByCoord.bw"
+    params:
+        OUTPUT_DIR = OUTPUT_DIR,
+        sample = "{sample}"
+    conda:
+        "envs/samtools.yml"
+    shell:
+        "/home/liuyang/Projects/HNSCC/scripts/rnaseq/human/src/post_align_filter.sh {input.bam} {params.sample} 4 {params.OUTPUT_DIR}"
+
+
+rule featureCount:
+    input:
+        filteredBam = OUTPUT_DIR + "/{sample}_STARAligned.filtered.bam",
+        gtf = gtf2
+    output:
+        counts = OUTPUT_DIR + "/counts/{sample}_featurecounts.txt"
+    params:
+        sample = "{sample}",
+        OUTPUT_DIR = OUTPUT_DIR
+    conda:
+        "envs/subread.yml"
+    shell:
+        "/home/liuyang/Projects/HNSCC/scripts/rnaseq/human/src/featureCounts.sh  {params.sample} {input.gtf} 4 {params.OUTPUT_DIR}"

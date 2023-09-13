@@ -1,0 +1,243 @@
+import os
+
+#SAMPLES=['HNm001_c_S2', 'HNm001_T_S1', 'HNm002_c_S4', 'HNm002_T_S3', 'HNm003_c_S6', 'HNm003_T_S5', 'HNm004_C_S8', 'HNm004_T_S7']
+with open('/home/liuyang/Projects/HNSCC/data/methylation/HiSeq017/sample_prefix.txt', 'r') as f:
+    SAMPLES = f.read().splitlines()
+
+RAWDATA_DIR = '/home/liuyang/Projects/HNSCC/data/methylation/HiSeq017'
+OUTPUT_DIR = '/home/liuyang/Projects/HNSCC/results/methylation_pipeline_output/HiSeq017'
+GENOME_PATH = "/home/liuyang/Annotation/hg38/sequence"
+DIR_methcall = OUTPUT_DIR + '/methy_call/'
+DIR_diffmeth = OUTPUT_DIR + '/diffmeth/'
+DIR_seg = OUTPUT_DIR + '/seg/'
+DIR_bigwig = OUTPUT_DIR + '/bigwig/'
+DIR_scripts = '/home/liuyang/Projects/HNSCC/scripts/methylation_pipeline/src'
+#seqlengths = ''
+
+rule all:
+    input:
+        #expand(OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam', sample=SAMPLES),
+        #expand(OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam.bai', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R1_paired_fastqc.html', sample=SAMPLES),
+        expand(OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R2_paired_fastqc.html', sample=SAMPLES),
+        GENOME_PATH + "/Bisulfite_Genome/CT_conversion/genome_mfa.CT_conversion.fa",
+        GENOME_PATH + "/Bisulfite_Genome/GA_conversion/genome_mfa.GA_conversion.fa",
+        #expand(os.path.join(DIR_seg,"{sample}_meth_segments.bed"), sample=SAMPLES),
+        #expand(os.path.join(DIR_methcall,"{sample}_CpG.txt"), sample=SAMPLES),
+        #expand(os.path.join(DIR_seg,"{sample}_meth_segments_gr.RDS"), sample=SAMPLES),
+        expand(os.path.join(DIR_bigwig,   "{sample}_bigwig.bw"), sample=SAMPLES)
+
+
+# rule combine_fastq:
+# 	input:
+# 		R1_L1 = RAWDATA_DIR + '/{sample}_L001_R1_001.fastq.gz',
+# 		R1_L2 = RAWDATA_DIR + '/{sample}_L002_R1_001.fastq.gz',
+# 		R2_L1 = RAWDATA_DIR + '/{sample}_L001_R2_001.fastq.gz',
+# 		R2_L2 = RAWDATA_DIR + '/{sample}_L002_R2_001.fastq.gz'
+# 	output:
+# 		R1 = OUTPUT_DIR + '/merged_fastq/{sample}_R1.fq.gz',
+# 		R2 = OUTPUT_DIR + '/merged_fastq/{sample}_R2.fq.gz'
+# 	shell:
+# 		"cat {input.R1_L1} {input.R1_L2} > {output.R1}; \
+# 		cat {input.R2_L1} {input.R2_L2} > {output.R2}"
+
+
+rule fastqc:
+    input:
+        R1 = RAWDATA_DIR + '/{sample}_1.fq.gz',
+        R2 = RAWDATA_DIR + '/{sample}_2.fq.gz'
+    params:
+        out_dir = OUTPUT_DIR + '/qc/pre_trim_fastqc'
+    output:
+        OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1_fastqc.html',
+        OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2_fastqc.html'
+    conda:
+        'envs/fastqc.yml'
+    shell:
+        "fastqc -o {params.out_dir} -f fastq {input.R1}; \
+        fastqc -o {params.out_dir} -f fastq {input.R2}"
+
+
+rule trim_reads_pe:
+    input:
+        R1 = RAWDATA_DIR + '/{sample}_1.fq.gz',
+        R2 = RAWDATA_DIR + '/{sample}_2.fq.gz',
+        R1_pre_trim_fastqc = OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_1_fastqc.html',
+        R2_pre_trim_fastqc = OUTPUT_DIR + '/qc/pre_trim_fastqc/{sample}_2_fastqc.html'
+    output:
+       R1_p = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+       R2_p = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz",
+       R1_up = OUTPUT_DIR  + "/trimmed/{sample}_R1_unpaired.fq.gz",
+       R2_up = OUTPUT_DIR  + "/trimmed/{sample}_R2_unpaired.fq.gz"
+    conda:
+        "envs/trimmomatic.yml"
+    log:
+        OUTPUT_DIR + "/logs/trimmomatic/{sample}.log"
+    shell:
+        "trimmomatic PE -threads 4 -phred33 {input.R1} {input.R2} \
+        {output.R1_p} {output.R1_up}  {output.R2_p} {output.R2_up} \
+        LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:20"
+
+
+rule post_trim_fastqc:
+    input:
+        R1_p = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+        R2_p = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz"
+    output:
+         OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R1_paired_fastqc.html',
+         OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R2_paired_fastqc.html'
+    params:
+        OUTPUT_DIR = OUTPUT_DIR + '/qc/post_trim_fastqc'
+    conda:
+        'envs/fastqc.yml'
+    shell:
+        "fastqc -o {params.OUTPUT_DIR} -f fastq {input.R1_p}; \
+        fastqc -o {params.OUTPUT_DIR} -f fastq {input.R2_p}"
+
+
+rule bismark_genome_preparation:
+    input:
+        GENOME_PATH = GENOME_PATH
+    output:
+        GENOME_PATH + "/Bisulfite_Genome/CT_conversion/genome_mfa.CT_conversion.fa",
+        GENOME_PATH + "/Bisulfite_Genome/GA_conversion/genome_mfa.GA_conversion.fa"
+    conda: 
+        'envs/bismark.yml'
+    shell:
+        "bismark_genome_preparation --verbose {input.GENOME_PATH}"
+
+
+rule bismark:
+    input:
+        R1 = OUTPUT_DIR  + "/trimmed/{sample}_R1_paired.fq.gz",
+        R2 = OUTPUT_DIR  + "/trimmed/{sample}_R2_paired.fq.gz",
+        refconvert_CT = GENOME_PATH + "/Bisulfite_Genome/CT_conversion/genome_mfa.CT_conversion.fa",
+        refconvert_CA = GENOME_PATH + "/Bisulfite_Genome/GA_conversion/genome_mfa.GA_conversion.fa",
+        R1_post_trim_fastqc = OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R1_paired_fastqc.html',
+        R2_post_trim_fastqc = OUTPUT_DIR + '/qc/post_trim_fastqc/{sample}_R2_paired_fastqc.html',
+    output:
+        OUTPUT_DIR + '/mapped/{sample}_R1_paired_bismark_bt2_pe.bam',
+        OUTPUT_DIR + '/mapped/{sample}_R1_paired_bismark_bt2_PE_report.txt'
+    params:
+        OUTPUT_DIR = OUTPUT_DIR + '/mapped'
+    conda:
+        'envs/bismark.yml'
+    shell:
+        "bismark --bowtie2 --multicore 4 -n 1 --output_dir {params.OUTPUT_DIR} --genome_folder /home/liuyang/Annotation/hg38/sequence/ -1 {input.R1} -2 {input.R2}"
+
+
+rule sortBam:
+    input:
+        OUTPUT_DIR + '/mapped/{sample}_R1_paired_bismark_bt2_pe.bam'
+    output:
+        OUTPUT_DIR + '/mapped/{sample}_bismark_sorted.bam'
+    conda:
+        'envs/samtools.yml'
+    shell:
+        "samtools sort -@ 2 -o {output} {input}"
+
+
+rule dedup:
+    input:
+        OUTPUT_DIR + '/mapped/{sample}_bismark_sorted.bam'
+    output:
+        deduped_bam = OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam',
+        metrics =  OUTPUT_DIR + '/qc/dedup/{sample}_marked_dup_metrics.txt'
+    conda:
+        'envs/picard.yml'
+    shell:
+        "picard MarkDuplicates \
+         I={input} \
+         O={output.deduped_bam} \
+         M={output.metrics}"
+
+
+rule indexBam:
+    input:
+        OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam'
+    output:
+        OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam.bai'
+    #params:
+    #    prefix = '{sample}_bismark_sorted_deduped.bam'
+    conda:
+        'envs/samtools.yml'
+    shell:
+        "samtools index -@ 2 {input} {output}"
+
+
+rule callMeth:
+    input:
+        bamfile = OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam',
+        bai = OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam.bai'
+    output:
+        rdsfile     = os.path.join(DIR_methcall,"{sample}_methylRaw.RDS")#,
+        #callFile    = os.path.join(DIR_methcall,"{sample}_CpG.txt")
+    params:
+        ## absolute path to bamfiles
+        inBam       = OUTPUT_DIR + '/mapped/{sample}_bismark_sorted_deduped.bam',
+        assembly    = "hg38",
+        mincov      = 10,
+        minqual     = 10,
+        ## absolute path to output folder in working dir
+        rds         = os.path.join(DIR_methcall,"{sample}_methylRaw.RDS")
+    log:
+        os.path.join(DIR_methcall,"{sample}_meth_calls.log")
+   # message: fmt("Extract methylation calls from bam file.")
+    conda:
+        'envs/bioconductor-methylkit.yml'
+    shell:
+        "Rscript {DIR_scripts}/methCall.R \
+                         --inBam={params.inBam} \
+                         --assembly={params.assembly} \
+                         --mincov={params.mincov} \
+                         --minqual={params.minqual} \
+                         --rds={params.rds} \
+                         --logFile={log}"
+
+
+# rule methseg:
+#     ## paths inside input and output should be relative
+#     input:
+#         rdsfile      = os.path.join(DIR_methcall,"{sample}_methylRaw.RDS")
+#     output:
+#         grfile       = os.path.join(DIR_seg,"{sample}_meth_segments_gr.RDS"),
+#         bedfile      = os.path.join(DIR_seg,"{sample}_meth_segments.bed")
+#     params:
+#         methCallRDS  = os.path.join(DIR_methcall,"{sample}_methylRaw.RDS"),
+#         methSegGR    = os.path.join(DIR_seg,"{sample}_meth_segments_gr.RDS"),
+#         methSegBed   = os.path.join(DIR_seg,"{sample}_meth_segments.bed"),
+#         methSegPng   = os.path.join(DIR_seg,"{sample}_meth_segments.png")
+#     log:
+#         os.path.join(DIR_seg,"{sample}_meth_segments.log")
+#     #message: fmt("Segmenting methylation profile for {input.rdsfile}.")
+#     conda:
+#         'envs/bioconductor-methylkit.yml'
+#     shell:
+#         "Rscript {DIR_scripts}/methSeg.R \
+#                          --rds={params.methCallRDS} \
+#                          --grds={params.methSegGR} \
+#                          --outBed={params.methSegBed} \
+#                          --png={params.methSegPng} \
+#                          --logFile={log}"
+
+
+rule export_bigwig:
+    input:
+        seqlengths = "/home/liuyang/Annotation/hg38/hg38.chrom.sizes",
+        rdsfile    = os.path.join(DIR_methcall, "{sample}_methylRaw.RDS")
+    output:
+        bw         = os.path.join(DIR_bigwig,   "{sample}_bigwig.bw")
+    #message: fmt("exporting bigwig files.")
+    conda:
+        'envs/bioconductor-methylkit.yml'
+    shell:
+        "Rscript {DIR_scripts}/export_bw.R \
+                          {input.rdsfile} \
+                          {input.seqlengths} \
+                          hg38 \
+                          {output}"
+
+
+
